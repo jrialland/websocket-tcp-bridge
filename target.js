@@ -1,6 +1,8 @@
 
 
-const WebSocket = require('ws');
+const SockJS = require('sockjs-client');
+
+
 const net = require('net');
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
@@ -28,17 +30,18 @@ let connections = {};
 
 ////////////////////////////////////////////////////////////////////////////////
 function createWs(bridgeUrl) {
-  ws = new WebSocket(bridgeUrl);
+  ws = new SockJS(bridgeUrl);
 
-  ws.on('open', () => {
+  ws.onopen = () => {
     //se déclarer auprés du bridge
     ws.send(JSON.stringify({
       senderRole:'server',
       type:'serverDecl'
     }));
-  });
+  };
 
-  ws.on('message', (incoming) => {
+  ws.onmessage = (evt) => {
+    let incoming = evt.data;
     let msg = JSON.parse(incoming);
 
     //demande de connection
@@ -102,18 +105,17 @@ function createWs(bridgeUrl) {
       }
     }
 
-  });
+  };
 
-  for(let evt of ['error', 'close']) {
-    //Quand la connection au bridge est perdue
-    ws.on(evt, (err) => {
-      logger.error(err);
-      //on recrée la connection vers le bridge aprés une seconde
-      setTimeout(() => {
-        ws = createWs(bridgeUrl);
-      }, 1000);
-    });
-  }
+  let retry = (err) => {
+    logger.error(JSON.stringify(err));
+    //on recrée la connection vers le bridge aprés une seconde
+    setTimeout(() => {
+      ws = createWs(bridgeUrl);
+    }, 1000);
+  };
+
+  ws.onerror = ws.onclose =retry;
 
   return ws;
 };

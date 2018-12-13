@@ -1,7 +1,8 @@
 //
 // bridge.js : serveur websocket
 //
-const WebSocket = require('ws');
+const http = require('http');
+const sockjs = require('sockjs');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
@@ -27,50 +28,39 @@ let client = null;
 let server = null;
 
 //création du serveur
-const wss = new WebSocket.Server({
-  port : PORT,
-  zlibDeflateOptions: {
-    chunkSize: 1024,
-    memLevel: 7,
-    level: 3
-  },
-  zlibInflateOptions: {
-    chunkSize: 10 * 1024
-  },
-  clientNoContextTakeover: true,
-  serverNoContextTakeover: true,
-  serverMaxWindowBits: 10,
-  concurrencyLimit: 10,
-  threshold: 1024
-});
+let sockjs_server = new sockjs.createServer();
 
-wss.on('connection', (ws, req) => {
+sockjs_server.on('connection', (ws) => {
 
-    ws.on('message', (incoming) => {
+    ws.on('data', (incoming) => {
        msg = JSON.parse(incoming);
        //message depuis un 'serveur'
        if(msg.senderRole == 'server') {
 
          //le serveur se déclare
          if(msg.type == 'serverDecl') {
-           winston.info('SERVER is ' + req.connection.remoteAddress);
+           logger.info('TARGET IS CONNECTED');
            server = ws;
          }
          // on reporte tout message du serveur vers le client
          else if(client != null) {
-            client.send(incoming);
+            client.write(incoming);
          }
        }
 
        else {
          if(msg.type == 'clientDecl') {
-           winston.info('CLIENT is ' + req.connection.remoteAddress);
+           logger.info('CLIENT IS CONNECTED');
            client = ws;
          } else if(server != null) {
-           server.send(incoming);
+           server.write(incoming);
          }
        }
     });
 });
 
-winston.info('listening on port ' + PORT);
+let http_server = http.createServer();
+sockjs_server.installHandlers(http_server, {'prefix':'/bridge'});
+http_server.listen({port:PORT});
+
+logger.info('listening on port ' + PORT);

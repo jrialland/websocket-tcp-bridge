@@ -5,7 +5,7 @@
 //
 
 let socks = require('socksv5');
-let WebSocket = require('ws');
+let SockJS = require('sockjs-client');
 let randomInt = require('random-int');
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -38,24 +38,20 @@ let ws = null;
  * Connection au bridge via WebSocket
  */
 function createWs(bridgeUrl) {
-  winston.info('attempts websocket connection to ' + bridgeUrl);
-  ws = new WebSocket(bridgeUrl);
-
-  ws.on('connect', () => {
-    winston.error('websocket connection established');
-  })
+  logger.info('attempts websocket connection to ' + bridgeUrl);
+  ws = new SockJS(bridgeUrl);
 
   //Quand on recoit un message du bridge
-  ws.on('open', () => {
-    winston.info('websocket connection open');
+  ws.onopen = () => {
+    logger.info('websocket connection open');
     ws.send(JSON.stringify({
       senderRole:'client',
       type:'clientDecl'
     }));
-  });
+  };
 
-  ws.on('message', (incoming) => {
-
+  ws.onmessage = (evt) => {
+    let incoming = evt.data;
     let msg = JSON.parse(incoming);
 
     //on recoit des données, les renvoyer a la socket
@@ -77,18 +73,17 @@ function createWs(bridgeUrl) {
       }
     }
 
-  });
+  };
 
-  //Quand la connection au bridge est perdue
-  for(let evt of ['close', 'error']) {
-    ws.on(evt, () => (err) => {
-      logger.info(err);
-      //on recrée la connection vers le bridge aprés une seconde
-      setTimeout(() => {
-        ws = createWs(bridgeUrl);
-      }, 1000);
-    });
-  }
+  let retry = (err) => {
+    logger.info(JSON.stringify(err));
+    //on recrée la connection vers le bridge aprés une seconde
+    setTimeout(() => {
+      ws = createWs(bridgeUrl);
+    }, 1000);
+  };
+
+  ws.onerror = ws.onclose = retry;
 
   return ws;
 }
