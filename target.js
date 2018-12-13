@@ -1,9 +1,11 @@
 
 
 const SockJS = require('sockjs-client');
-
-
+const http = require('http');
 const net = require('net');
+
+var proxy="http://localhost:8888";
+
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
 const winston = require('winston');
@@ -23,6 +25,14 @@ if(!bridgeUrl){
   logger.error('websocket bridge url is not specified !');
 }
 
+for(let arg of process.argv) {
+  if(arg.startsWith('--proxy=')) {
+    let proxy = arg.slice(8).trim();
+    logger.info("using HTTP PROXY " + proxy);
+    require('proxying-agent').globalize(proxy);
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //Variables globales du script
 let ws = null;
@@ -30,6 +40,7 @@ let connections = {};
 
 ////////////////////////////////////////////////////////////////////////////////
 function createWs(bridgeUrl) {
+
   ws = new SockJS(bridgeUrl);
 
   ws.onopen = () => {
@@ -71,6 +82,7 @@ function createWs(bridgeUrl) {
 
       //Quand la connection fermee de notre coté
       socket.on('close', () => {
+
         logger.info('connection close');
         //renvoyer l'info vers le bridge
         delete connections[connectionId];
