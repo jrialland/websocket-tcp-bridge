@@ -101,30 +101,35 @@ function createWs(bridgeUrl) {
     }
 
     // on recoit des data du client, on envoie sur la socket
-    else if(msg.type == 'data') {
+    else if(msg.type == 'data' && msg.connectionId && msg.data) {
       let socket = connections[msg.connectionId];
       if(socket != null) {
+        socket.cork()
         socket.write(new Buffer(msg.data.data));
+        process.nextTick(() => socket.uncork());
       }
     }
 
     //connection fermée coté client => on ferme la socket
-    else if(msg.type == 'connectionClosed') {
+    else if(msg.type == 'connectionClosed' && msg.connectionId) {
       let connection = connections[msg.connectionId];
       if(connection != null) {
-        connection.close();
         delete connections[msg.connectionId];
+        connection.destroy();
       }
     }
 
   };
 
   let retry = (err) => {
-    logger.error(JSON.stringify(err));
-    //on recrée la connection vers le bridge aprés une seconde
-    setTimeout(() => {
-      ws = createWs(bridgeUrl);
-    }, 1000);
+    if(err) {
+      logger.error(JSON.stringify(err));
+    } else {
+      //on recrée la connection vers le bridge aprés une seconde
+      setTimeout(() => {
+        ws = createWs(bridgeUrl);
+      }, 1000);
+    }
   };
 
   ws.onerror = ws.onclose =retry;

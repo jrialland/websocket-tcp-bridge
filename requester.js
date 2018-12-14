@@ -69,7 +69,7 @@ function createWs(bridgeUrl) {
       let s = connections[connectionId];
       if(s) {
         delete connections[connectionId];
-        s.close();
+        s.destroy();
       }
     }
 
