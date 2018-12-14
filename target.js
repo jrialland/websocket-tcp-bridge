@@ -3,8 +3,7 @@
 const SockJS = require('sockjs-client');
 const http = require('http');
 const net = require('net');
-
-var proxy="http://localhost:8888";
+const protocol = require('./protocol');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
@@ -45,7 +44,7 @@ function createWs(bridgeUrl) {
 
   ws.onopen = () => {
     //se déclarer auprés du bridge
-    ws.send(JSON.stringify({
+    ws.send(protocol.serialize({
       senderRole:'server',
       type:'serverDecl'
     }));
@@ -53,7 +52,7 @@ function createWs(bridgeUrl) {
 
   ws.onmessage = (evt) => {
     let incoming = evt.data;
-    let msg = JSON.parse(incoming);
+    let msg = protocol.deserialize(incoming);
 
     //demande de connection
     if(msg.type=='connect') {
@@ -71,7 +70,7 @@ function createWs(bridgeUrl) {
       //Quand on recoit des données sur la socket
       socket.on('data', (data) => {
         //renvoyer vers le bridge
-        ws.send(JSON.stringify({
+        ws.send(protocol.serialize({
           senderRole:'server',
           type:'data',
           data:data,
@@ -83,10 +82,10 @@ function createWs(bridgeUrl) {
       //Quand la connection fermee de notre coté
       socket.on('close', () => {
 
-        logger.info('connection close');
+        logger.info('connection close connectionId ' + msg.connectionId);
         //renvoyer l'info vers le bridge
         delete connections[connectionId];
-        ws.send(JSON.stringify({
+        ws.send(protocol.serialize({
           senderRole:'server',
           type:'connectionClosed',
           connectionId:connectionId

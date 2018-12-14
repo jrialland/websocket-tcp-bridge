@@ -3,6 +3,7 @@
 //
 const http = require('http');
 const sockjs = require('sockjs');
+const protocol = require('./protocol');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
@@ -33,7 +34,7 @@ let sockjs_server = new sockjs.createServer();
 sockjs_server.on('connection', (ws) => {
 
     ws.on('data', (incoming) => {
-       msg = JSON.parse(incoming);
+       msg = protocol.deserialize(incoming);
        //message depuis un 'serveur'
        if(msg.senderRole == 'server') {
 

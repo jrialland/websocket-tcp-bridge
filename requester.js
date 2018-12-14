@@ -4,9 +4,10 @@
 // usage: node requester.js <port socks> <url du bridge>
 //
 
-let socks = require('socksv5');
-let SockJS = require('sockjs-client');
-let randomInt = require('random-int');
+const socks = require('socksv5');
+const  SockJS = require('sockjs-client');
+const  randomInt = require('random-int');
+const  protocol = require('./protocol');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Configuration logging
@@ -44,7 +45,7 @@ function createWs(bridgeUrl) {
   //Quand on recoit un message du bridge
   ws.onopen = () => {
     logger.info('websocket connection open');
-    ws.send(JSON.stringify({
+    ws.send(protocol.serialize({
       senderRole:'client',
       type:'clientDecl'
     }));
@@ -52,24 +53,36 @@ function createWs(bridgeUrl) {
 
   ws.onmessage = (evt) => {
     let incoming = evt.data;
-    let msg = JSON.parse(incoming);
+    let msg = protocol.deserialize(incoming);
 
     //on recoit des données, les renvoyer a la socket
     if(msg.type == 'data') {
        let connectionId = msg.connectionId;
        let s = connections[connectionId];
        if(s) {
-         s.write(new Buffer(msg.data.data));
+         try {
+           s.cork();
+           s.write(new Buffer(msg.data.data));
+           process.nextTick(() => s.uncork());
+         } catch(e) {
+           logger.error('socket write error connectionId ' + connectionId);
+           delete connections[connectionId];
+           s.destroy();
+         }
        }
     }
 
     //connection fermme coté serveur, on ferme coté client
     else if(msg.type == 'close') {
       let connectionId = msg.connectionId;
-      let s = connections[connectionId];
-      if(s) {
-        delete connections[connectionId];
-        s.destroy();
+      try {
+        let s = connections[connectionId];
+        if(s) {
+          delete connections[connectionId];
+          s.destroy();
+        }
+      } catch(e) {
+        logger.error('error closing connectionId ' + connectionId);
       }
     }
 
@@ -106,7 +119,7 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
      logger.info('new connection to ' + connInfo.dstAddr + ':' + connInfo.dstPort, '\tconnectionId='+connectionId);
 
      // demande de connection envoyee au bridge
-     ws.send(JSON.stringify({
+     ws.send(protocol.serialize({
        senderRole:'client',
        type:'connect',
        dstAddr : connInfo.dstAddr,
@@ -117,7 +130,7 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
      // quand des données sont lues sur la socket
      socket.on('data', (data) => {
        // envoyer vers le bridge
-       ws.send(JSON.stringify({
+       ws.send(protocol.serialize({
          senderRole:'client',
          type:'data',
          data:data,
@@ -129,7 +142,7 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
      //quand la socket est fermée
      socket.on('close', () => {
        //envoyer l'info au bridge
-       ws.send(JSON.stringify({
+       ws.send(protocol.serialize({
          senderRole:'client',
          type:'connectionClosed',
          connectionId:connectionId
