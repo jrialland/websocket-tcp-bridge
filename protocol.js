@@ -1,8 +1,9 @@
 module.exports = {};
-
+/*
 bufferUtils = require('buffer-utils');
 BufferReader = bufferUtils.BufferReader;
 BufferWriter = bufferUtils.BufferWriter;
+*/
 
 const CLIENT_DECL = 1;
 const SERVER_DECL = 2;

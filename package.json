@@ -9,7 +9,6 @@
   "author": "J Rialland",
   "license": "ISC",
   "dependencies": {
-    "buffer-utils": "^1.1.0",
     "proxying-agent": "^2.2.4",
     "random-int": "^1.0.0",
     "sockjs": "^0.3.19",
