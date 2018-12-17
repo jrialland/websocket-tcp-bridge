@@ -9,7 +9,7 @@ const protocol = require('./protocol');
 // Configuration logging
 const winston = require('winston');
 const logger = winston.createLogger({
-   level:'debug',
+   level:'error',
    format: winston.format.simple(),
    transports : [
      new winston.transports.Console({handleExceptions:true,level:'debug',colorize:true})
@@ -44,14 +44,11 @@ function createWs(bridgeUrl) {
 
   ws.onopen = () => {
     //se déclarer auprés du bridge
-    ws.send(protocol.serialize({
-      senderRole:'server',
-      type:'serverDecl'
-    }));
+    ws.send(protocol.serialize_server_decl());
   };
 
   ws.onmessage = (evt) => {
-    let incoming = evt.data;
+    let incoming = Buffer.from(evt.data);
     let msg = protocol.deserialize(incoming);
 
     //demande de connection
@@ -70,12 +67,7 @@ function createWs(bridgeUrl) {
       //Quand on recoit des données sur la socket
       socket.on('data', (data) => {
         //renvoyer vers le bridge
-        ws.send(protocol.serialize({
-          senderRole:'server',
-          type:'data',
-          data:data,
-          connectionId:connectionId
-        }));
+        ws.send(protocol.serialize_server_data(data, connectionId));
 
       });
 
@@ -85,11 +77,7 @@ function createWs(bridgeUrl) {
         logger.info('connection close connectionId ' + msg.connectionId);
         //renvoyer l'info vers le bridge
         delete connections[connectionId];
-        ws.send(protocol.serialize({
-          senderRole:'server',
-          type:'connectionClosed',
-          connectionId:connectionId
-        }));
+        ws.send(protocol.serialize_server_connection_close(connectionId));
       });
 
       //connecter la socket
@@ -104,7 +92,7 @@ function createWs(bridgeUrl) {
       let socket = connections[msg.connectionId];
       if(socket != null) {
         socket.cork()
-        socket.write(new Buffer(msg.data.data));
+        socket.write(msg.data);
         process.nextTick(() => socket.uncork());
       }
     }
@@ -123,12 +111,11 @@ function createWs(bridgeUrl) {
   let retry = (err) => {
     if(err) {
       logger.error(JSON.stringify(err));
-    } else {
-      //on recrée la connection vers le bridge aprés une seconde
-      setTimeout(() => {
-        ws = createWs(bridgeUrl);
-      }, 1000);
     }
+    //on recrée la connection vers le bridge aprés une seconde
+    setTimeout(() => {
+        ws = createWs(bridgeUrl);
+    }, 1000);
   };
 
   ws.onerror = ws.onclose =retry;

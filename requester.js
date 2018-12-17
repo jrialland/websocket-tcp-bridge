@@ -13,7 +13,7 @@ const  protocol = require('./protocol');
 // Configuration logging
 const winston = require('winston');
 const logger = winston.createLogger({
-   level:'debug',
+   level:'error',
    format: winston.format.simple(),
    transports : [
      new winston.transports.Console({handleExceptions:true,level:'debug',colorize:true})
@@ -42,18 +42,16 @@ function createWs(bridgeUrl) {
   logger.info('attempts websocket connection to ' + bridgeUrl);
   ws = new SockJS(bridgeUrl);
 
-  //Quand on recoit un message du bridge
+  //Se déclarer à l'ouverture de la connection
   ws.onopen = () => {
     logger.info('websocket connection open');
-    ws.send(protocol.serialize({
-      senderRole:'client',
-      type:'clientDecl'
-    }));
+    ws.send(protocol.serialize_client_decl());
   };
 
+  //Quand on recoit un message du bridge
   ws.onmessage = (evt) => {
-    let incoming = evt.data;
-    let msg = protocol.deserialize(incoming);
+    
+    let msg = protocol.deserialize(evt.data);
 
     //on recoit des données, les renvoyer a la socket
     if(msg.type == 'data') {
@@ -62,7 +60,7 @@ function createWs(bridgeUrl) {
        if(s) {
          try {
            s.cork();
-           s.write(new Buffer(msg.data.data));
+           s.write(msg.data);
            process.nextTick(() => s.uncork());
          } catch(e) {
            logger.error('socket write error connectionId ' + connectionId);
@@ -119,34 +117,19 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
      logger.info('new connection to ' + connInfo.dstAddr + ':' + connInfo.dstPort, '\tconnectionId='+connectionId);
 
      // demande de connection envoyee au bridge
-     ws.send(protocol.serialize({
-       senderRole:'client',
-       type:'connect',
-       dstAddr : connInfo.dstAddr,
-       dstPort : connInfo.dstPort,
-       connectionId:connectionId
-     }));
+     ws.send(protocol.serialize_connect_request(connInfo.dstAddr, connInfo.dstPort, connectionId));
 
      // quand des données sont lues sur la socket
      socket.on('data', (data) => {
        // envoyer vers le bridge
-       ws.send(protocol.serialize({
-         senderRole:'client',
-         type:'data',
-         data:data,
-         connectionId:connectionId
-       }));
+       ws.send(protocol.serialize_client_data(data, connectionId));
 
      });
 
      //quand la socket est fermée
      socket.on('close', () => {
        //envoyer l'info au bridge
-       ws.send(protocol.serialize({
-         senderRole:'client',
-         type:'connectionClosed',
-         connectionId:connectionId
-       }));
+       ws.send(protocol.serialize_client_connection_close(connectionId));
      });
 
    } else {

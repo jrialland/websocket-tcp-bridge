@@ -63,5 +63,4 @@ sockjs_server.on('connection', (ws) => {
 let http_server = http.createServer();
 sockjs_server.installHandlers(http_server, {'prefix':'/bridge'});
 http_server.listen({port:PORT});
-
 logger.info('listening on port ' + PORT);
