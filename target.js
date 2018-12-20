@@ -1,21 +1,7 @@
-
-
-const SockJS = require('sockjs-client');
-const http = require('http');
+const logger = require('./logger');
 const net = require('net');
-const protocol = require('./protocol');
-
-////////////////////////////////////////////////////////////////////////////////
-// Configuration logging
-const winston = require('winston');
-const logger = winston.createLogger({
-   level:'error',
-   format: winston.format.simple(),
-   transports : [
-     new winston.transports.Console({handleExceptions:true,level:'debug',colorize:true})
-   ],
-   exitOnError:false
-});
+const minimist = require('minimist');
+const BridgeClient = require('./bridge_client').BridgeClient;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Lecture parametres du script
@@ -24,104 +10,66 @@ if(!bridgeUrl){
   logger.error('websocket bridge url is not specified !');
 }
 
-for(let arg of process.argv) {
-  if(arg.startsWith('--proxy=')) {
-    let proxy = arg.slice(8).trim();
-    logger.info("using HTTP PROXY " + proxy);
-    require('proxying-agent').globalize(proxy);
-  }
+const args = minimist(process.argv.slice(2));
+if(!args.u) {
+  throw new Error('usage : node target.js -u <bridge url>');
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-//Variables globales du script
-let ws = null;
-let connections = {};
+const SOCKETS = {};
+const bridgeClient = new BridgeClient(args.u, 'target');
+bridgeClient.onMessage = (message) => {
 
-////////////////////////////////////////////////////////////////////////////////
-function createWs(bridgeUrl) {
+  if(message.type == 'info') {
+    logger.info(message.message);
+  }
 
-  ws = new SockJS(bridgeUrl);
-
-  ws.onopen = () => {
-    //se déclarer auprés du bridge
-    ws.send(protocol.serialize_server_decl());
-  };
-
-  ws.onmessage = (evt) => {
-    let incoming = Buffer.from(evt.data);
-    let msg = protocol.deserialize(incoming);
-
-    //demande de connection
-    if(msg.type=='connect') {
-
-      let connectionId = msg.connectionId;
-      let dstAddr = msg.dstAddr;
-      let dstPort = msg.dstPort;
-
-      let socket = connections[connectionId] = new net.Socket();
-
-      socket.on('error', (err) => {
-        logger.error(err);
-      });
-
-      //Quand on recoit des données sur la socket
-      socket.on('data', (data) => {
-        //renvoyer vers le bridge
-        ws.send(protocol.serialize_server_data(data, connectionId));
-
-      });
-
-      //Quand la connection fermee de notre coté
-      socket.on('close', () => {
-
-        logger.info('connection close connectionId ' + msg.connectionId);
-        //renvoyer l'info vers le bridge
-        delete connections[connectionId];
-        ws.send(protocol.serialize_server_connection_close(connectionId));
-      });
-
-      //connecter la socket
-      socket.connect(dstPort, dstAddr, () => {
-        logger.info('connected to ' + dstAddr + ':' + dstPort);
-      });
-
+  if(message.type == 'data') {
+    let connectionId = message.connectionId;
+    let socket = SOCKETS[connectionId];
+    if(socket) {
+      socket.cork();
+      socket.write(message.data);
+      socket.uncork();
+    } else {
+      bridgeClient.sendMessage('error', {connectionId:connectionId, message:'unknown connectionId'});
     }
+  }
 
-    // on recoit des data du client, on envoie sur la socket
-    else if(msg.type == 'data' && msg.connectionId && msg.data) {
-      let socket = connections[msg.connectionId];
-      if(socket != null) {
-        socket.cork()
-        socket.write(msg.data);
-        process.nextTick(() => socket.uncork());
-      }
+  if(message.type == 'close') {
+    let connectionId = message.connectionId;
+    let socket = SOCKETS[connectionId];
+    if(socket) {
+      socket.destroy();
+      delete SOCKETS[connectionId];
     }
+  }
 
-    //connection fermée coté client => on ferme la socket
-    else if(msg.type == 'connectionClosed' && msg.connectionId) {
-      let connection = connections[msg.connectionId];
-      if(connection != null) {
-        delete connections[msg.connectionId];
-        connection.destroy();
-      }
-    }
+  if(message.type == 'open') {
+    let connectionId = message.connectionId;
+    let socket = new net.Socket();
+    SOCKETS[connectionId] = socket;
+    socket.on('connect', () => {
+      logger.info('connect ' + socket.remoteAddress + ':' + socket.remotePort);
+    });
 
-  };
+    socket.on('data', (data) => {
+      bridgeClient.sendMessage('data', {connectionId: connectionId, data:data});
+    });
 
-  let retry = (err) => {
-    if(err) {
-      logger.error(JSON.stringify(err));
-    }
-    //on recrée la connection vers le bridge aprés une seconde
-    setTimeout(() => {
-        ws = createWs(bridgeUrl);
-    }, 1000);
-  };
+    socket.on('close', () => {
+      bridgeClient.sendMessage('close', {connectionId:connectionId});
+    });
 
-  ws.onerror = ws.onclose =retry;
+    socket.on('error', (err) => {
+      bridgeClient.sendMessage('error', {connectionId:connectionId});
+    });
 
-  return ws;
+    socket.on('end', () => {
+      delete SOCKETS[connectionId];
+    });
+
+    socket.connect(message.dstPort, message.dstAddr);
+  }
+
 };
-
-//connection initiale
-ws = createWs(bridgeUrl);

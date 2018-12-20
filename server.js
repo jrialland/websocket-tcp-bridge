@@ -1,65 +1,46 @@
-//
-// bridge.js : serveur websocket
-//
 const http = require('http');
 const sockjs = require('sockjs');
-const protocol = require('./protocol');
-
-////////////////////////////////////////////////////////////////////////////////
-// Configuration logging
-const winston = require('winston');
-const logger = winston.createLogger({
-   level:'debug',
-   format: winston.format.simple(),
-   transports : [
-     new winston.transports.Console({handleExceptions:true,level:'debug',colorize:true})
-   ],
-   exitOnError:false
-});
+const logger = require('./logger');
+const minimist = require('minimist');
 
 let PORT = 80;
-if(process.argv.length > 2) {
-  PORT = parseInt(process.argv[process.argv.length-1]);
+const args = minimist(process.argv.slice(2));
+if(args.p) {
+  PORT = parseInt(args.p);
 }
-
-//connection websocket courante avec le client
-let client = null;
-
-//connection websocket courante avec le serveur
-let server = null;
+const CLIENTS = {};
 
 //création du serveur
 let sockjs_server = new sockjs.createServer();
-
 sockjs_server.on('connection', (ws) => {
-
     ws.on('data', (incoming) => {
-       msg = protocol.deserialize(incoming);
-       //message depuis un 'serveur'
-       if(msg.senderRole == 'server') {
+       msg = JSON.parse(incoming);
+       CLIENTS[msg.sender] = ws;
 
-         //le serveur se déclare
-         if(msg.type == 'serverDecl') {
-           logger.info('TARGET IS CONNECTED');
-           server = ws;
-         }
-         // on reporte tout message du serveur vers le client
-         else if(client != null) {
-            client.write(incoming);
-         }
+       if(msg.type == 'ping') {
+         ws.write(JSON.stringify({type:'pong', pong:'pong'}));
+         return;
        }
 
-       else {
-         if(msg.type == 'clientDecl') {
-           logger.info('CLIENT IS CONNECTED');
-           client = ws;
-         } else if(server != null) {
-           server.write(incoming);
+       logger.debug(`[server] : received ${msg.type} from ${msg.sender}`);
+       let transferred = false;
+       for(let role of Object.keys(CLIENTS)) {
+         if(role != msg.sender) {
+           logger.debug(`[server] : ...  dispatching to ${role}`);
+           transferred = true;
+           CLIENTS[role].write(incoming);
          }
+       }
+       if(!transferred) {
+         ws.write(JSON.stringify({
+           sender:'server',
+           type:'error',
+           originalMessage:msg,
+           message:'message lost (no peer to read it)'
+         }));
        }
     });
 });
-
 let http_server = http.createServer();
 sockjs_server.installHandlers(http_server, {'prefix':'/bridge'});
 http_server.listen({port:PORT});

@@ -1,106 +1,69 @@
 //
 // requester.js script a lancer coté "client" pour instancier
 // un serveur socks local qui convertit les flux tcp en messages pour le 'bridge'
-// usage: node requester.js <port socks> <url du bridge>
+// usage: node requester.js -S <port socks> -u <url du bridge>
 //
 
 const socks = require('socksv5');
 const  SockJS = require('sockjs-client');
-const  randomInt = require('random-int');
-const  protocol = require('./protocol');
-
-////////////////////////////////////////////////////////////////////////////////
-// Configuration logging
-const winston = require('winston');
-const logger = winston.createLogger({
-   level:'error',
-   format: winston.format.simple(),
-   transports : [
-     new winston.transports.Console({handleExceptions:true,level:'debug',colorize:true})
-   ],
-   exitOnError:false
-});
+const minimist = require('minimist');
+const fnv = require('fnv-plus');
+const logger = require('./logger');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Lecture parametres du script
-let socksPort = parseInt(process.argv[process.argv.length-2]);
-let bridgeUrl = process.argv[process.argv.length-1];
-if(!bridgeUrl){
-  logger.error('websocket bridge url is not specified !');
+let socksPort = 1080;
+let bridgeUrl = null;
+
+const args = minimist(process.argv.slice(2));
+if(args.S) {
+  socksPort = parseInt(args.S);
+}
+if(args.u) {
+  bridgeUrl = args.u.trim();
+} else {
+  throw Error('Usage : node requester.js -S <port socks> -u <url du bridge>')
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//Variables globales du script
-let connections = {};
-let ws = null;
-
-////////////////////////////////////////////////////////////////////////////////
-/**
- * Connection au bridge via WebSocket
- */
-function createWs(bridgeUrl) {
-  logger.info('attempts websocket connection to ' + bridgeUrl);
-  ws = new SockJS(bridgeUrl);
-
-  //Se déclarer à l'ouverture de la connection
-  ws.onopen = () => {
-    logger.info('websocket connection open');
-    ws.send(protocol.serialize_client_decl());
-  };
-
-  //Quand on recoit un message du bridge
-  ws.onmessage = (evt) => {
-    
-    let msg = protocol.deserialize(evt.data);
-
-    //on recoit des données, les renvoyer a la socket
-    if(msg.type == 'data') {
-       let connectionId = msg.connectionId;
-       let s = connections[connectionId];
-       if(s) {
-         try {
-           s.cork();
-           s.write(msg.data);
-           process.nextTick(() => s.uncork());
-         } catch(e) {
-           logger.error('socket write error connectionId ' + connectionId);
-           delete connections[connectionId];
-           s.destroy();
-         }
-       }
-    }
-
-    //connection fermme coté serveur, on ferme coté client
-    else if(msg.type == 'close') {
-      let connectionId = msg.connectionId;
-      try {
-        let s = connections[connectionId];
-        if(s) {
-          delete connections[connectionId];
-          s.destroy();
-        }
-      } catch(e) {
-        logger.error('error closing connectionId ' + connectionId);
-      }
-    }
-
-  };
-
-  let retry = (err) => {
-    logger.info(JSON.stringify(err));
-    //on recrée la connection vers le bridge aprés une seconde
-    setTimeout(() => {
-      ws = createWs(bridgeUrl);
-    }, 1000);
-  };
-
-  ws.onerror = ws.onclose = retry;
-
-  return ws;
+function createConnectionId(socket) {
+  let r = Math.floor(Math.random() * Math.floor(1024));
+  socket.connectionId = parseInt(fnv.hash(socket.removeAddress + socket.remotePort + r).dec());
+  return socket.connectionId ;
 }
+////////////////////////////////////////////////////////////////////////////////
+//Connection au bridge
+const BridgeClient = require('./bridge_client').BridgeClient;
+let bridgeClient = new BridgeClient(bridgeUrl, 'requester');
 
-//on se connecte au bridge
-createWs(bridgeUrl);
+////////////////////////////////////////////////////////////////////////////////
+
+let SOCKETS = {};
+
+bridgeClient.onMessage = (message) => {
+
+  if(message.type == 'data') {
+    let connectionId = message.connectionId;
+    let socket = SOCKETS[connectionId];
+    if(socket) {
+      socket.cork();
+      socket.write(message.data);
+      socket.uncork();
+    }
+  }
+
+  else if(message.type == 'close') {
+    let connectionId = message.connectionId;
+    let socket = SOCKETS[connectionId];
+    if(socket) {
+      socket.destroy();
+    }
+  }
+
+  else if(message.type != 'pong'){
+    logger.info(JSON.stringify(message));
+  }
+
+};
 
 /**
  * Creation du serveur socks local
@@ -108,28 +71,33 @@ createWs(bridgeUrl);
 let socksServer = socks.createServer((connInfo, accept, deny) => {
    var socket;
 
-   // quand on demande une nouvelle connection
+   // quand un client se connecte a socks
    if(socket = accept(true)) {
 
-     // envoyer une demande d'ouverture de connection au bridge
-     let connectionId = '' + randomInt(0,9999) + '-' + Object.keys(connections).length;
-     connections[connectionId] = socket;
-     logger.info('new connection to ' + connInfo.dstAddr + ':' + connInfo.dstPort, '\tconnectionId='+connectionId);
+     //attribuer un id;
+     let connectionId = createConnectionId(socket);
+     SOCKETS[connectionId] = socket;
 
-     // demande de connection envoyee au bridge
-     ws.send(protocol.serialize_connect_request(connInfo.dstAddr, connInfo.dstPort, connectionId));
-
-     // quand des données sont lues sur la socket
+     //quand on recoit de la donnée on l'envoie au bridge
      socket.on('data', (data) => {
-       // envoyer vers le bridge
-       ws.send(protocol.serialize_client_data(data, connectionId));
-
+       bridgeClient.sendMessage('data', {connectionId:connectionId, data:data});
      });
 
-     //quand la socket est fermée
-     socket.on('close', () => {
-       //envoyer l'info au bridge
-       ws.send(protocol.serialize_client_connection_close(connectionId));
+     //quand on a une erreur on envoie au bridge
+     socket.on('error', (err) => {
+       bridgeClient.sendMessage('error', {connectionId:connectionId, error:err});
+     });
+
+     //a la fin on supprime de la liste des connections
+     socket.on('end', () => {
+       delete SOCKETS[connectionId];
+     });
+
+     logger.info('connect ' + connInfo.dstAddr + ':' + connInfo.dstPort);
+     bridgeClient.sendMessage('open', {
+       dstAddr : connInfo.dstAddr,
+       dstPort : connInfo.dstPort,
+       connectionId : connectionId
      });
 
    } else {
@@ -141,5 +109,4 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
 socksServer.listen(socksPort, 'localhost', () => {
    logger.info('SOCKS Server listening on port ' + socksPort);
 });
-
 socksServer.useAuth(socks.auth.None());

@@ -1,16 +1,15 @@
 #!/bin/bash
 
-node server.js 8888 &
+node server.js -p 8888 &
 server_pid=$!
-sleep 1
 
-node requester.js 1080 http://localhost:8888/bridge &
-requester_pid=$!
-sleep 1
-
-node target.js http://localhost:8888/bridge &
+node target.js -u http://localhost:8888/bridge &
 target_pid=$!
-sleep 1
+
+node requester.js -s 1080 -u http://localhost:8888/bridge &
+requester_pid=$!
+
+sleep 5
 
 function onexit {
    kill -9 $server_pid
