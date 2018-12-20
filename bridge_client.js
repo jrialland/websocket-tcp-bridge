@@ -17,7 +17,11 @@ class BridgeClient {
     this.ws = this.createWs();
     const that = this;
     setInterval(() => {
-      that.sendMessage('ping', {ping:'ping'});
+      try {
+        that.sendMessage('ping', {ping:'ping'});
+      } catch(e) {
+        logger.error('ping failed');
+      }
     }, 2000);
   }
 
