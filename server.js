@@ -18,6 +18,7 @@ sockjs_server.on('connection', (ws) => {
        CLIENTS[msg.sender] = ws;
 
        if(msg.type == 'ping') {
+         logger.debug('[server] received ping from ' + msg.sender);
          ws.write(JSON.stringify({type:'pong', sender:'server', pong:'pong'}));
          return;
        }
