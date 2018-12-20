@@ -18,7 +18,7 @@ sockjs_server.on('connection', (ws) => {
        CLIENTS[msg.sender] = ws;
 
        if(msg.type == 'ping') {
-         ws.write(JSON.stringify({type:'pong', pong:'pong'}));
+         ws.write(JSON.stringify({type:'pong', sender:'server', pong:'pong'}));
          return;
        }
 

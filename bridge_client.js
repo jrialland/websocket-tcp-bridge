@@ -45,6 +45,7 @@ class BridgeClient {
 
   _onMessage(event) {
     const msg = JSON.parse(event.data);
+    logger.debug(`receive ${msg.type} from ${msg.sender?msg.sender:'?'}`);
     if(msg.data) {
       msg.data = Buffer.from(msg.data, 'base64');
     }
