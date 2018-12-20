@@ -26,7 +26,7 @@ class BridgeClient {
   }
 
   createWs() {
-    let ws = new SockJS(this.url,{transports:['jsonp-polling']});
+    let ws = new SockJS(this.url);
     ws.onopen = () => {logger.info('connected to ' + this.url)};
     ws.onmessage = this._onMessage.bind(this);
     const that = this;
