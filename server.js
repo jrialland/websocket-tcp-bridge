@@ -15,19 +15,19 @@ let sockjs_server = new sockjs.createServer();
 sockjs_server.on('connection', (ws) => {
     ws.on('data', (incoming) => {
 
-       const msgs = JSON.parse(incoming);
-       if(msgs.length > 0) {
-         CLIENTS[msgs[0].sender] = ws;
-         for(let role of Object.keys(CLIENTS)) {
-           let otherWs = CLIENTS[role]
-           if(ws != otherWs) {
-             logger.debug(`[server] : ...  dispatching to ${role}`);
-             transferred = true;
-             CLIENTS[role].write(incoming);
-           }
+       const msg = JSON.parse(incoming);
+       CLIENTS[msg.sender] = ws;
+
+       for(let role of Object.keys(CLIENTS)) {
+         let otherWs = CLIENTS[role]
+         if(ws != otherWs) {
+           logger.debug(`[server] : ...  dispatching to ${role}`);
+           transferred = true;
+           CLIENTS[role].write(incoming);
          }
        }
     });
+    
 });
 let http_server = http.createServer();
 sockjs_server.installHandlers(http_server, {'prefix':'/bridge'});

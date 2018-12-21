@@ -14,12 +14,11 @@ class BridgeClient {
   constructor(url, role) {
     this.url = url;
     this.role = role;
-    this.pendingMessages = [];
     this.ws = this._createWs();
+    this.seq = 1;
+    this.incomingMessages = [];
     const that = this;
-    setInterval(() => {
-      that._sendPending();
-    }, 500);
+    setInterval(this._dispatch.bind(this), 1000);
   }
 
   _createWs() {
@@ -40,42 +39,38 @@ class BridgeClient {
     return ws;
   }
 
-  _sendPending() {
-    if(this.ws.readyState == SockJS.OPEN) {
-      let msgs = this.pendingMessages.slice(0);
-      this.pendingMessages = [];
-      this.ws.send(JSON.stringify(msgs));
-    }
-  }
-
   sendMessage(type, msg) {
     msg.type = type;
     msg.sender = this.role;
+    msg.seq = this.seq++;
     if(msg.data) {
       msg.data = msg.data.toString('base64');
     }
     logger.debug(`[${msg.sender}] sending ${msg.type} ${msg.connectionId?(' -- connectiondId ' + msg.connectionId):''}`);
-    this.pendingMessages.push(msg);
+    this.ws.send(JSON.stringify(msg));
   }
 
   _onMessage(event) {
-    const msgs = JSON.parse(event.data);
-    for(var i =0; i<msgs.length; i++) {
-      let msg = msgs[i];
-      logger.debug(`receive ${msg.type} from ${msg.sender?msg.sender:'?'} ${msg.connectionId?(' -- connectiondId ' + msg.connectionId):''}`);
-
-      if(msg.data) {
-        msg.data = Buffer.from(msg.data, 'base64');
-      }
-
-      if(event.sender != this.role) {
-          try{
-            this.onMessage(msg);
-          } catch(e) {
-            logger.error('while handling message', e);
-          }
-      }
+    const msg = JSON.parse(event.data);
+    if(msg.data) {
+      msg.data = Buffer.from(msg.data, 'base64');
     }
+    this.incomingMessages.push(msg);
+  }
+
+  _dispatch() {
+    let msgs = this.incomingMessages.slice(0);
+    this.incomingMessages = [];
+    msgs.sort( (a,b) => {
+      return a.seq - b.seq;
+    });
+    msgs.forEach(msg => {
+      try {
+        this.onMessage(msg);
+      } catch(e) {
+        logger.error(e);
+      }
+    });
   }
 
   onMessage(message) {

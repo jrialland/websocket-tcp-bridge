@@ -24,8 +24,3 @@ npm install -g pkg
 pkg -t node8-win-x64 -o target.exe target.js
 ```
 
-My setup:
-
-- requester.js and hpts run as services on my linux desktop, the http_proxy and https_proxy env vars are set to "http://localhost:80"
-- server.js is installed on an external server I rent for less that 3€/month
-- target.js is "compiled" as a windows executable and runs in the target environment
