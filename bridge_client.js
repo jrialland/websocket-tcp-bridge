@@ -14,47 +14,67 @@ class BridgeClient {
   constructor(url, role) {
     this.url = url;
     this.role = role;
-    this.ws = this.createWs();
+    this.pendingMessages = [];
+    this.ws = this._createWs();
     const that = this;
     setInterval(() => {
-      try {
-        that.sendMessage('ping', {ping:'ping'});
-      } catch(e) {
-        logger.error('ping failed');
-      }
-    }, 2000);
+      that._sendPending();
+    }, 500);
   }
 
-  createWs() {
-    let ws = new SockJS(this.url);
-    ws.onopen = () => {logger.info('connected to ' + this.url)};
-    ws.onmessage = this._onMessage.bind(this);
+  _createWs() {
     const that = this;
-    ws.onclose = () => {
+    let ws = new SockJS(this.url);
+
+    ws.onopen = () => {
+      logger.info('connected to ' + this.url);
+      that.sendMessage('subscribe',{});
+    };
+
+    ws.onerror = () => {
       setTimeout(() => {that.ws = that.createWs()}, 3500);
-    }
+    };
+
+    ws.onmessage = this._onMessage.bind(this);
+
     return ws;
   }
 
-  sendMessage(type, payload) {
-    payload.type = type;
-    payload.sender = this.role;
-    if(payload.data) {
-      payload.data = payload.data.toString('base64');
+  _sendPending() {
+    if(this.ws.readyState == SockJS.OPEN) {
+      let msgs = this.pendingMessages.slice(0);
+      this.pendingMessages = [];
+      this.ws.send(JSON.stringify(msgs));
     }
-    let raw = JSON.stringify(payload);
-    logger.debug(`[${this.role}] sending ${payload.type}`);
-    this.ws.send(raw);
+  }
+
+  sendMessage(type, msg) {
+    msg.type = type;
+    msg.sender = this.role;
+    if(msg.data) {
+      msg.data = msg.data.toString('base64');
+    }
+    logger.debug(`[${msg.sender}] sending ${msg.type} ${msg.connectionId?(' -- connectiondId ' + msg.connectionId):''}`);
+    this.pendingMessages.push(msg);
   }
 
   _onMessage(event) {
-    const msg = JSON.parse(event.data);
-    logger.debug(`receive ${msg.type} from ${msg.sender?msg.sender:'?'}`);
-    if(msg.data) {
-      msg.data = Buffer.from(msg.data, 'base64');
-    }
-    if(event.sender != this.role) {
-      this.onMessage(msg);
+    const msgs = JSON.parse(event.data);
+    for(var i =0; i<msgs.length; i++) {
+      let msg = msgs[i];
+      logger.debug(`receive ${msg.type} from ${msg.sender?msg.sender:'?'} ${msg.connectionId?(' -- connectiondId ' + msg.connectionId):''}`);
+
+      if(msg.data) {
+        msg.data = Buffer.from(msg.data, 'base64');
+      }
+
+      if(event.sender != this.role) {
+          try{
+            this.onMessage(msg);
+          } catch(e) {
+            logger.error('while handling message', e);
+          }
+      }
     }
   }
 

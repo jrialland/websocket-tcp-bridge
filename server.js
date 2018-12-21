@@ -14,31 +14,18 @@ const CLIENTS = {};
 let sockjs_server = new sockjs.createServer();
 sockjs_server.on('connection', (ws) => {
     ws.on('data', (incoming) => {
-       msg = JSON.parse(incoming);
-       CLIENTS[msg.sender] = ws;
 
-       if(msg.type == 'ping') {
-         logger.debug('[server] received ping from ' + msg.sender);
-         ws.write(JSON.stringify({type:'pong', sender:'server', pong:'pong'}));
-         return;
-       }
-
-       logger.debug(`[server] : received ${msg.type} from ${msg.sender}`);
-       let transferred = false;
-       for(let role of Object.keys(CLIENTS)) {
-         if(role != msg.sender) {
-           logger.debug(`[server] : ...  dispatching to ${role}`);
-           transferred = true;
-           CLIENTS[role].write(incoming);
+       const msgs = JSON.parse(incoming);
+       if(msgs.length > 0) {
+         CLIENTS[msgs[0].sender] = ws;
+         for(let role of Object.keys(CLIENTS)) {
+           let otherWs = CLIENTS[role]
+           if(ws != otherWs) {
+             logger.debug(`[server] : ...  dispatching to ${role}`);
+             transferred = true;
+             CLIENTS[role].write(incoming);
+           }
          }
-       }
-       if(!transferred) {
-         ws.write(JSON.stringify({
-           sender:'server',
-           type:'error',
-           originalMessage:msg,
-           message:'message lost (no peer to read it)'
-         }));
        }
     });
 });

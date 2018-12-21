@@ -27,8 +27,8 @@ if(args.u) {
 
 function createConnectionId(socket) {
   let r = Math.floor(Math.random() * Math.floor(1024));
-  socket.connectionId = parseInt(fnv.hash(socket.removeAddress + socket.remotePort + r).dec());
-  return socket.connectionId ;
+  let connectionId = parseInt(fnv.hash(socket.removeAddress + socket.remotePort + r).dec());
+  return connectionId;
 }
 ////////////////////////////////////////////////////////////////////////////////
 //Connection au bridge
@@ -45,9 +45,13 @@ bridgeClient.onMessage = (message) => {
     let connectionId = message.connectionId;
     let socket = SOCKETS[connectionId];
     if(socket) {
-      socket.cork();
-      socket.write(message.data);
-      socket.uncork();
+      try {
+        socket.cork();
+        socket.write(message.data);
+        socket.uncork();
+      } catch(e) {
+        logger.error('write error');
+      }
     }
   }
 
@@ -85,6 +89,7 @@ let socksServer = socks.createServer((connInfo, accept, deny) => {
 
      //quand on a une erreur on envoie au bridge
      socket.on('error', (err) => {
+       console.log(err);
        bridgeClient.sendMessage('error', {connectionId:connectionId, error:err});
      });
 

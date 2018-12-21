@@ -3,10 +3,12 @@
 node server.js -p 8888 &
 server_pid=$!
 
-node target.js -u http://vps627814.ovh.net/bridge &
+#node target.js -u http://vps627814.ovh.net/bridge &
+node target.js -u http://localhost:8888/bridge &
 target_pid=$!
 
-node requester.js -s 1080 -u http://vps627814.ovh.net/bridge &
+#node requester.js -s 1080 -u http://vps627814.ovh.net/bridge &
+node requester.js -s 1080 -u http://localhost:8888/bridge &
 requester_pid=$!
 
 sleep 5
