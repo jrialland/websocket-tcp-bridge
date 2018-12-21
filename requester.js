@@ -7,7 +7,7 @@
 const socks = require('socksv5');
 const  SockJS = require('sockjs-client');
 const minimist = require('minimist');
-const fnv = require('fnv-plus');
+const uuidv1 = require('uuid/v1');
 const logger = require('./logger');
 const bc = require('./bridge_client');
 
@@ -27,9 +27,7 @@ if(args.u) {
 }
 
 function createConnectionId(socket) {
-  let r = Math.floor(Math.random() * Math.floor(1024));
-  let connectionId = parseInt(fnv.hash(socket.removeAddress + socket.remotePort + r).dec());
-  return connectionId;
+  return uuidv1();
 }
 ////////////////////////////////////////////////////////////////////////////////
 //Connection au bridge
