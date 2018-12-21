@@ -15,10 +15,6 @@ class BridgeClient {
     this.url = url;
     this.role = role;
     this.ws = this._createWs();
-    this.seq = 1;
-    this.incomingMessages = [];
-    const that = this;
-    setInterval(this._dispatch.bind(this), 1000);
   }
 
   _createWs() {
@@ -55,22 +51,11 @@ class BridgeClient {
     if(msg.data) {
       msg.data = Buffer.from(msg.data, 'base64');
     }
-    this.incomingMessages.push(msg);
-  }
-
-  _dispatch() {
-    let msgs = this.incomingMessages.slice(0);
-    this.incomingMessages = [];
-    msgs.sort( (a,b) => {
-      return a.seq - b.seq;
-    });
-    msgs.forEach(msg => {
-      try {
-        this.onMessage(msg);
-      } catch(e) {
-        logger.error(e);
-      }
-    });
+    try {
+      this.onMessage(msg);
+    } catch(e) {
+      logger.error(e);
+    }
   }
 
   onMessage(message) {

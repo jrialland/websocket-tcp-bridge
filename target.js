@@ -57,16 +57,13 @@ bridgeClient.onMessage = (message) => {
       bridgeClient.sendMessage('data', {connectionId: connectionId, data:data});
     });
 
-    socket.on('close', () => {
-      bridgeClient.sendMessage('close', {connectionId:connectionId});
-    });
-
     socket.on('error', (err) => {
       bridgeClient.sendMessage('error', {connectionId:connectionId});
     });
 
     socket.on('end', () => {
       delete SOCKETS[connectionId];
+      bridgeClient.sendMessage('close', {connectionId:connectionId});
     });
 
     socket.connect(message.dstPort, message.dstAddr);
